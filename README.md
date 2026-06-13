@@ -4,7 +4,7 @@ An always-on-top Windows desktop widget that shows your **Claude subscription us
 the same rolling-window limits you see in Claude Code's `/usage`, plus your local
 token history.
 
-![icon](src-tauri/app-icon.png)
+<img src="src-tauri/app-icon.png" alt="Claude Usage Widget icon" width="96" />
 
 ## Install
 
