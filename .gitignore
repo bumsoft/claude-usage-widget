@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+dist/
+
+# rust / tauri
+src-tauri/target/
+
+# generated icon set (regenerate with `npm run icon`)
+# keep app-icon.png source; ignore nothing else by default
+
+# generated static preview
+preview.html
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.log
+.preview-shot.png

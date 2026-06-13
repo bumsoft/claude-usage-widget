@@ -1,0 +1,46 @@
+name: release
+
+# Build the Windows installer and publish a GitHub Release when a version tag
+# is pushed, e.g.  git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Claude Usage Widget ${{ github.ref_name }}"
+          releaseBody: |
+            Download the installer below (`*-setup.exe`).
+
+            The build is unsigned, so Windows SmartScreen may warn on first run —
+            click **More info → Run anyway**.
+          releaseDraft: false
+          prerelease: false
