@@ -30,6 +30,8 @@ pub enum CoreError {
     Network(String),
     /// The token was rejected (expired or revoked). The UI should prompt re-login.
     Unauthorized,
+    /// HTTP 429 — rate limited. Carries the `Retry-After` seconds when provided.
+    RateLimited(Option<u64>),
     /// The usage endpoint returned a non-success HTTP status.
     Http(u16),
 }
@@ -42,6 +44,10 @@ impl fmt::Display for CoreError {
             CoreError::Unauthorized => {
                 write!(f, "token expired or unauthorized — run Claude Code once to refresh it")
             }
+            CoreError::RateLimited(Some(secs)) => {
+                write!(f, "rate limited (HTTP 429); retry after {secs}s")
+            }
+            CoreError::RateLimited(None) => write!(f, "rate limited (HTTP 429)"),
             CoreError::Http(code) => write!(f, "usage endpoint returned HTTP {code}"),
         }
     }

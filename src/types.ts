@@ -68,7 +68,13 @@ export interface AppConfig {
   compactStyle: CompactStyle;
 }
 
-export type StatusKind = "loading" | "ok" | "error" | "unauthorized" | "no-source";
+export type StatusKind =
+  | "loading"
+  | "ok"
+  | "error"
+  | "unauthorized"
+  | "rate-limited"
+  | "no-source";
 
 export interface Status {
   kind: StatusKind;

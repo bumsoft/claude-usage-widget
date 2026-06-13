@@ -130,6 +130,15 @@ pub async fn fetch_raw_usage(
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err(CoreError::Unauthorized);
     }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = resp
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .filter(|&s| s > 0);
+        return Err(CoreError::RateLimited(retry_after));
+    }
     if !status.is_success() {
         return Err(CoreError::Http(status.as_u16()));
     }

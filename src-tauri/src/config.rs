@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::Manager;
 
-const DEFAULT_REFRESH_SECONDS: u32 = 60;
-const MIN_REFRESH_SECONDS: u32 = 15;
+const DEFAULT_REFRESH_SECONDS: u32 = 90;
+const MIN_REFRESH_SECONDS: u32 = 30;
 
 /// User-tweakable widget settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]

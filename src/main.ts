@@ -7,8 +7,10 @@ import type { AppConfig, CompactStyle, Source } from "./types";
 import { renderApp } from "./ui/app";
 
 const STATS_REFRESH_MS = 5 * 60 * 1000;
-const MIN_REFRESH = 15;
+const MIN_REFRESH = 30;
 const MAX_REFRESH = 3600;
+const MAX_BACKOFF_MS = 10 * 60 * 1000;
+const MAX_BACKOFF_LEVEL = 6;
 
 const SIZE_EXPANDED = { w: 300, h: 432 };
 const SIZE_COMPACT: Record<CompactStyle, { w: number; h: number }> = {
@@ -21,6 +23,8 @@ const root = document.getElementById("app") as HTMLElement;
 let state: UiState;
 let usageTimer: number | undefined;
 let statsTimer: number | undefined;
+let backoffLevel = 0;
+let nextPollAtMs: number | null = null;
 
 function render(): void {
   root.innerHTML = renderApp(state);
@@ -54,8 +58,11 @@ function errText(e: unknown): string {
   return typeof e === "string" ? e : String((e as { message?: string })?.message ?? e);
 }
 
-function classify(e: unknown): "unauthorized" | "error" {
-  return /unauthor|expired|401|403/i.test(errText(e)) ? "unauthorized" : "error";
+function classify(e: unknown): "unauthorized" | "rate-limited" | "error" {
+  const msg = errText(e);
+  if (/\b429\b|rate limited/i.test(msg)) return "rate-limited";
+  if (/unauthor|expired|401|403/i.test(msg)) return "unauthorized";
+  return "error";
 }
 
 async function refreshUsage(): Promise<void> {
@@ -66,8 +73,11 @@ async function refreshUsage(): Promise<void> {
   }
   try {
     const usage = await api.fetchUsage(src.credentialsPath);
+    backoffLevel = 0; // recovered — resume normal cadence
     setState({ usage, status: { kind: "ok" }, lastUpdatedMs: Date.now() });
   } catch (e) {
+    // Any failure backs the poller off so we don't hammer the endpoint.
+    backoffLevel = Math.min(backoffLevel + 1, MAX_BACKOFF_LEVEL);
     const kind = classify(e);
     setState({ status: { kind, message: kind === "error" ? errText(e) : undefined } });
   }
@@ -87,10 +97,32 @@ async function refreshStats(): Promise<void> {
 
 // --- scheduling -----------------------------------------------------------
 
-function scheduleUsage(): void {
-  if (usageTimer) clearInterval(usageTimer);
-  const seconds = Math.min(MAX_REFRESH, Math.max(MIN_REFRESH, state.config.refreshSeconds));
-  usageTimer = window.setInterval(refreshUsage, seconds * 1000);
+function baseIntervalMs(): number {
+  return Math.min(MAX_REFRESH, Math.max(MIN_REFRESH, state.config.refreshSeconds)) * 1000;
+}
+
+// 0–5s of jitter avoids polling in lockstep with Claude Code on the same token.
+function jitterMs(): number {
+  return Math.floor(Math.random() * 5000);
+}
+
+function nextDelayMs(): number {
+  const base = baseIntervalMs();
+  if (backoffLevel <= 0) return base + jitterMs();
+  // Exponential backoff on repeated failures (429s), capped.
+  return Math.min(MAX_BACKOFF_MS, base * 2 ** backoffLevel) + jitterMs();
+}
+
+/** Self-scheduling poll loop so the delay can adapt after each request. */
+function scheduleUsage(delay = nextDelayMs()): void {
+  if (usageTimer) clearTimeout(usageTimer);
+  nextPollAtMs = Date.now() + delay;
+  usageTimer = window.setTimeout(pollTick, delay);
+}
+
+async function pollTick(): Promise<void> {
+  await refreshUsage();
+  scheduleUsage();
 }
 
 function scheduleStats(): void {
@@ -106,7 +138,11 @@ function startClock(): void {
       if (iso) el.textContent = `resets in ${formatCountdown(iso, now)}`;
     });
     const statusText = document.querySelector<HTMLElement>(".status-text");
-    if (statusText && state.status.kind === "ok" && state.lastUpdatedMs) {
+    if (!statusText) return;
+    if (state.status.kind === "rate-limited" && nextPollAtMs) {
+      const secs = Math.max(0, Math.ceil((nextPollAtMs - now) / 1000));
+      statusText.textContent = `rate limited · retry ${secs}s`;
+    } else if (state.status.kind === "ok" && state.lastUpdatedMs) {
       statusText.textContent = `updated ${ago(now - state.lastUpdatedMs)}`;
     }
   }, 1000);
@@ -116,14 +152,15 @@ function startClock(): void {
 
 async function selectSource(id: string): Promise<void> {
   const config: AppConfig = { ...state.config, selectedSourceId: id };
+  backoffLevel = 0; // fresh source — start at the normal cadence
   setState({ selectedId: id, config, usage: null, stats: null, status: { kind: "loading" } });
   await api.setConfig(config).catch(() => {});
   await Promise.all([refreshUsage(), refreshStats()]);
-  scheduleUsage(); // realign the poll interval to this fresh fetch
+  scheduleUsage(); // realign the poll loop to this fresh fetch
 }
 
 async function setRefresh(value: number): Promise<void> {
-  const refreshSeconds = Math.min(MAX_REFRESH, Math.max(MIN_REFRESH, Math.floor(value || 60)));
+  const refreshSeconds = Math.min(MAX_REFRESH, Math.max(MIN_REFRESH, Math.floor(value || 90)));
   const config: AppConfig = { ...state.config, refreshSeconds };
   setState({ config });
   await api.setConfig(config).catch(() => {});
@@ -185,6 +222,13 @@ async function removeCustom(index: number): Promise<void> {
   await refreshSources();
 }
 
+// Manual refresh clears any backoff and realigns the poll loop.
+async function manualRefresh(): Promise<void> {
+  backoffLevel = 0;
+  await Promise.all([refreshUsage(), refreshStats()]);
+  scheduleUsage();
+}
+
 // --- events ---------------------------------------------------------------
 
 function onClick(e: MouseEvent): void {
@@ -201,8 +245,7 @@ function onClick(e: MouseEvent): void {
       void toggleCompact();
       break;
     case "refresh":
-      void refreshUsage();
-      void refreshStats();
+      void manualRefresh();
       break;
     case "add-custom":
       void addCustom();
@@ -251,7 +294,7 @@ async function init(): Promise<void> {
     config = {
       selectedSourceId: null,
       customPaths: [],
-      refreshSeconds: 60,
+      refreshSeconds: 90,
       alwaysOnTop: true,
       compact: false,
       compactStyle: "bars",

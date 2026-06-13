@@ -169,6 +169,7 @@ function renderStatusbar(state: UiState, now: number): string {
   const kind = state.status.kind;
   let text: string;
   if (kind === "unauthorized") text = "token expired";
+  else if (kind === "rate-limited") text = "rate limited";
   else if (kind === "error") text = state.status.message ?? "error";
   else if (kind === "no-source") text = "no source";
   else if (state.lastUpdatedMs) text = `updated ${ago(now - state.lastUpdatedMs)}`;
@@ -212,7 +213,7 @@ function renderSettings(state: UiState): string {
       ${customs ? `<div class="custom-list">${customs}</div>` : ""}
       <div class="field row">
         <span class="field-label">Refresh (sec)</span>
-        <input class="num" type="number" min="15" max="3600" step="5"
+        <input class="num" type="number" min="30" max="3600" step="5"
           value="${state.config.refreshSeconds}" data-action="set-refresh" />
       </div>
       <label class="field row">
